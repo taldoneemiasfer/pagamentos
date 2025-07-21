@@ -1,0 +1,23 @@
+{
+    "billingType": "CREDIT_CARD",
+    "customer": "cus_000006867392",
+    "value": 300,
+    "dueDate": "2025-08-01",
+    "description": "teste",
+    "creditCard": {
+        "holderName": "Teste",
+        "number": "1231231234564561",
+        "expiryMonth": "10",
+        "expiryYear": "2025",
+        "ccv": "123"
+    },
+    "creditCardHolderInfo": {
+        "name": "Zé da padoca",
+        "email": "teste@teste.com",
+        "cpfCnpj": "96431344073",
+        "postalCode": "27521620",
+        "addressNumber": "1509",
+        "phone": "(24) 98989-9999",
+        "mobilePhone": "(24) 98989-9999"
+    }
+}

@@ -11,12 +11,8 @@ Route::get('/', function () {
 
 /*Criacao das rotas de get e post*/
 Route::get('/index', [PagamentoController::class, 'index']);
-Route::post('/pagamento', [PagamentoController::class, 'pagar']);
+Route::post('/pagamento', [PagamentoController::class, 'pagar'])->name('pagamento.pagar');
 
-/*criacao de retorno do tipo do pagamento*/ 
-Route::get('/pagamento/PIX', fn() => 'Pagamento PIX');
-Route::get('/pagamento/CREDIT_CARD', fn() => 'Pagamento Cartão');
-Route::get('/pagamento/BOLETO', fn() => 'Pagamento Boleto');
 
 /*Criacao de rota de teste*/
 Route::get('/testePagamentoBoleto', [PagamentoController::class, 'testePagamentoBoleto']);

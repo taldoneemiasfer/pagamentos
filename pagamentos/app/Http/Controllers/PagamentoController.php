@@ -2,13 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\PagamentoRequest;
 use App\Models\Produtos;
+use Illuminate\Http\Client\Response;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\View;
+use Illuminate\Http\Client\RequestException;
+
 
 use App\Models\Pagamentos;
 use App\Models\Customers;
+use Redirect;
 
 class PagamentoController extends Controller
 {
@@ -19,68 +24,30 @@ class PagamentoController extends Controller
 
         return view('pagamento.index', compact('itens'));
     }
-
-    public function pagar(Request $request)
+    public function pagar(PagamentoRequest $request)
     {
-        print ($request);
+        /** para fazer a validação */
+        $dadosValidados = $request->validated();
         $forma = $request->input('forma_pagamento');
 
-        $request->validate([
-            'produtos' => ['required', 'array', 'min:1'],
-            'forma_pagamento' => ['required', Rule::in(['PIX', 'CREDIT_CARD', 'BOLETO'])],
-        ]);
-
-        if ($forma === 'CREDIT_CARD') {
-            $request->validate([
-                'holderName' => [
-                    Rule::requiredIf($forma === 'CREDIT_CARD'),
-                    'regex:/^[\pL\s]+$/u'
-                ],
-                'number' => [
-                    Rule::requiredIf($forma === 'CREDIT_CARD'),
-                    'digits_between:13,19'
-                ],
-                'expiryMonth' => [
-                    Rule::requiredIf($forma === 'CREDIT_CARD'),
-                    'digits:2',
-                    'integer',
-                    'between:1,12'
-                ],
-                'expiryYear' => [
-                    Rule::requiredIf($forma === 'CREDIT_CARD'),
-                    'digits:4',
-                    'integer'
-                ],
-                'cvv' => [
-                    Rule::requiredIf($forma === 'CREDIT_CARD'),
-                    'digits:3'
-                ],
-            ], [
-                'holderName.regex' => 'O nome no cartão deve conter apenas letras e espaços.',
-                'number.digits_between' => 'O número do cartão deve ter entre 13 e 19 dígitos.',
-                'expiryMonth.between' => 'O mês deve estar entre 1 e 12.',
-            ]);
-        }
-
         $produtosSelecionados = $request->input('produtos');
-        $produtos = Produtos::where('id', $produtosSelecionados)->get();
+        $somaValores = Produtos::getSomaProdutos($produtosSelecionados);
+        $produtos = Produtos::getProdutosById($produtosSelecionados)->toArray();
 
-
-        $somaValores = $produtos->sum('preco');
-        $produtos = $produtos->toArray();
-
-        $cliente = Customers::first(); // Obtém o primeiro cliente cadastrado em teste
-        if ($cliente) {
-            $clienteId = $cliente->getKey();
-        } else {
-            // Tratar erro: nenhum cliente encontrado
+        $clienteId = Customers::getFirstCustomerKey(); // Obtém o primeiro cliente cadastrado em teste
+        if (!$clienteId) {
+            return redirect()->back()->withErrors(['Nenhum cliente encontrado.']);
         }
 
-        //$valor = array_sum(array_column($produtosSelecionados, 'preco'));
         $dueDate = now()->addDays(7)->format('Y-m-d');
-        /**
-         * enviar pagamento para a API
-         */
+
+        $pagamentoExists = Pagamentos::getPagamentoPendente($clienteId, $forma, $somaValores);
+        //print_r($pagamentoExists);
+        /**verifica se o pagamento ja existe no banco, e retorna o pagamento sem gerar duplicidade */
+        if ($pagamentoExists) {
+            // Se já existe um pagamento pendente, redireciona para a página de sucesso
+            return $this->redirecionaPagamento($forma, $pagamentoExists->pagamento_id, $somaValores);
+        }
 
         $conteudo = [
             'customer' => $clienteId,
@@ -90,6 +57,113 @@ class PagamentoController extends Controller
             'description' => json_encode($produtos)
         ];
 
+        if ($forma === 'CREDIT_CARD') {
+            $conteudo = array_merge($conteudo, [
+                'creditCard' => [
+                    'holderName' => $request->input('holderName'),
+                    'number' => $request->input('number'),
+                    'expiryMonth' => $request->input('expiryMonth'),
+                    'expiryYear' => $request->input('expiryYear'),
+                    'ccv' => $request->input('cvv'), // cuidado: no JSON é "ccv", não "cvv"
+                ],
+                'creditCardHolderInfo' => [
+                    'name' => $request->input('name'),
+                    'email' => $request->input('email'),
+                    'cpfCnpj' => $request->input('cpfCnpj'),
+                    'postalCode' => $request->input('postalCode'),
+                    'addressNumber' => $request->input('addressNumber'),
+                    'phone' => $request->input('phone'),
+                    'mobilePhone' => $request->input('mobilePhone'),
+                ]
+            ]);
+        }
+
+        try {
+            /** envia um post para o asaas */
+
+            /** envia um post para o asaas */
+            $response = Http::withOptions(['verify' => false])->withHeaders([
+                'accept' => 'application/json',
+                'access_token' => env('API_TOKEN'),
+                'User-Agent' => 'Teste PP',
+            ])->throw()->post('https://api-sandbox.asaas.com/v3/payments', $conteudo);
+
+            $json = $response->json();
+
+            $pagamentoId = $json['id'];
+            $status = $json['status'];
+
+            /** criar o pagamento no banco de dados */
+            $conteudo = array_merge($conteudo, [
+                'pagamento_id' => $pagamentoId,
+                'status' => $status,
+            ]);
+
+            /** criacao do registro no banco de dados local */
+            $pagamentoExists = Pagamentos::create($conteudo);
+
+            //redireciona para a view de pagamento
+            return $this->redirecionaPagamento($forma, $pagamentoId, $somaValores);
+        } catch (RequestException $e) {
+            $response = $e->response;
+            if ($response && $response->status() == 400) {
+                $json = $response->json();
+                foreach ($json['errors'] ?? [] as $error) {
+                    if ($error['code'] === 'invalid_creditCard') {
+                        return redirect()->back()->withErrors(['creditCard' => $error['description']])->withInput();;
+                    }
+                }
+                return redirect()->back()->withErrors(['api_error' => $json['message'] ?? 'Erro na API'])->withInput();
+            }
+            throw $e;
+        }
+    }
+
+    public function redirecionaPagamento(string $forma, string $pagamentoId, float $somaValores)
+    {
+        if ($pagamentoId == "") {
+            return redirect()->back()->withErrors(['Erro ao processar pagamento.'])->withInput();;
+        }
+        $response = $this->processarPagamento("https://api-sandbox.asaas.com/v3/payments/{$pagamentoId}/billingInfo");
+        $json = $response->json();
+        $status = $response->status();
+        if ($status !== 200) {
+            return redirect()->back()->withErrors(['Erro ao obter QR Code Pix.'])->withInput();;
+        }
+        $pix = $json['pix'];
+        $creditCard = $json['creditCard'];
+        $boleto = $json['bankSlip'];
+        switch ($forma) {
+            case 'PIX':
+                return view('pagamento.pix', [
+                    'encodedImage' => $pix['encodedImage'],
+                    'payload' => $pix['payload'],
+                    'valor' => $somaValores,
+                    'vencimento' => $pix['expirationDate'],
+                ]);
+            case 'CREDIT_CARD':
+                return view('pagamento.cartao', [
+                    'creditCardNumber' =>$creditCard["creditCardNumber"],
+                    'creditCardBrand' => $creditCard['creditCardBrand'],
+                    'creditCardToken' => $creditCard['creditCardToken'],
+                    'valor' => $somaValores
+                ]);
+            case 'BOLETO':
+                return view('pagamento.boleto', [
+                    'identificationField' => $boleto['identificationField'],
+                    'urlBoleto' => $boleto['bankSlipUrl'],
+                    'nossoNumero' => $boleto['nossoNumero'],
+                    'barCode' => $boleto['barCode'],
+                    'valor' => $somaValores,
+                    'encodedImage' => $pix['encodedImage'],
+                    'payload' => $pix['payload'],
+                    'vencimento' => $pix['expirationDate'],
+                ]);
+        }
+    }
+
+    public function processarPagamento(string $url): Response
+    {
         $response = Http::withOptions(
             [
                 'verify' => false, // Disable SSL verification for testing
@@ -98,29 +172,24 @@ class PagamentoController extends Controller
                     'accept' => 'application/json',
                     'access_token' => env('API_TOKEN'),
                     'User-Agent' => 'Teste PP',
-                ])->throw()->post('https://api-sandbox.asaas.com/v3/payments', $conteudo);
+                ])->throw()->get("$url");
+        return $response;
+    }
 
-        $status = $response->status();
-        if ($status == 200) {
-            $json = $response->json();
-            $pagamentoId = $json['id']; // ID do pagamento retornado pela API
-            $status = $json['status']; // Status do pagamento retornado pela API
-            /** criar o pagamento no banco de dados */
+    public function formatarBoleto(string $codigoBarras): string
+    {
+        // Formata o código de barras do boleto
+        $codigoBarras = preg_replace('/\D/', '', $codigoBarras); // Remove caracteres não numéricos
 
-            $conteudo = array_merge($conteudo, [
-                'pagamento_id' => $pagamentoId, // ID buscar do resultado da API
-                'status' => $status, // Status do pagamento retornado pela API
-            ]);
-            
-            Pagamentos::create($conteudo);
-
-        } else {
-            dd("Erro ao criar pagamento: " . $response->body());
-        }
-
-
-
-        return redirect("/pagamento/$forma");
+        $codigoFormatado = substr($codigoBarras, 0, 5) . '.' .
+            substr($codigoBarras, 5, 5) . ' ' .
+            substr($codigoBarras, 10, 5) . '.' .
+            substr($codigoBarras, 15, 6) . ' ' .
+            substr($codigoBarras, 21, 5) . '.' .
+            substr($codigoBarras, 26, 6) . ' ' .
+            substr($codigoBarras, 32, 1) . ' ' .
+            substr($codigoBarras, 33);
+        return $codigoFormatado;
     }
 
     public function testePagamentoBoleto()
@@ -142,6 +211,7 @@ class PagamentoController extends Controller
         //dd($response->status(), $response->body());
         $status = $response->status();
         $body = $response->body(); // Texto bruto da resposta
+        //$json = json_decode($body, true); // Tenta forçar o decode
 
         //logger("STATUS: $status");
         //logger("BODY: $body");
