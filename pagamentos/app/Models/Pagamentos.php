@@ -8,12 +8,15 @@ class Pagamentos extends Model
 {
     protected $table = "pagamentos";
     protected $fillable = [
+        'pagamento_id',
         'customer',
         'value',
         'status',
         'billingType',
         'dueDate',
-        'description'
+        'description',
     ];
     public $timestamps = true; 
+    protected $primaryKey = 'id';
+    protected $keyType = 'string';
 }

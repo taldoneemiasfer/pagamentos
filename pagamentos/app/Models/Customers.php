@@ -13,10 +13,10 @@ class Customers extends Model
         'name',
         'email',
         'phone',
-        'cpfCnpj',
-        'updated_at',
-        'created_at'
+        'cpfCnpj'
     ];
 
     public $timestamps = true;
+    protected $primaryKey = 'id';
+    protected $keyType = 'string';
 }

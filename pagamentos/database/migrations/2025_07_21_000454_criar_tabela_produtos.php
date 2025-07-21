@@ -57,16 +57,16 @@ return new class extends Migration {
             $table->id();
             $table->string('pagamento_id')->unique(); // ID do pagamento na API
             $table->string('object')->default('payment');
-            $table->date('dateCreated');
+            $table->date('dateCreated')->default(now());
             $table->string('customer'); // ID do cliente na API
             $table->string('checkoutSession')->nullable();
             $table->string('paymentLink')->nullable();
             $table->decimal('value', 10, 2);
-            $table->decimal('netValue', 10, 2);
+            $table->decimal('netValue', 10, 2)->nullable();
             $table->decimal('originalValue', 10, 2)->nullable();
             $table->decimal('interestValue', 10, 2)->nullable();
             $table->string('description')->nullable();
-            $table->enum('billingType', ['BOLETO', 'CREDIT_CARD', 'PIX', 'DEBIT_CARD']);
+            $table->enum('billingType', ['BOLETO', 'CREDIT_CARD', 'PIX']);
             $table->boolean('canBePaidAfterDueDate')->default(true);
             $table->string('pixTransaction')->nullable();
             $table->enum('status', ['PENDING', 'PAID', 'CANCELED', 'OVERDUE', 'REFUNDED']);
@@ -80,7 +80,7 @@ return new class extends Migration {
             $table->string('externalReference')->nullable();
             $table->boolean('deleted')->default(false);
             $table->boolean('anticipated')->default(false);
-            $table->boolean('anticipable')->default(false);
+            $table->boolean('anticipable')->default(true);
             $table->date('creditDate')->nullable();
             $table->date('estimatedCreditDate')->nullable();
             $table->string('transactionReceiptUrl')->nullable();
