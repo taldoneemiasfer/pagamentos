@@ -17,6 +17,7 @@ class ProdutosController extends Controller
             Produtos::create($produto);
         }
 
+        dd($produtos);
         return response()->json($produtos);
     }
 }

@@ -110,7 +110,8 @@ class PagamentoController extends Controller
                 $json = $response->json();
                 foreach ($json['errors'] ?? [] as $error) {
                     if ($error['code'] === 'invalid_creditCard') {
-                        return redirect()->back()->withErrors(['creditCard' => $error['description']])->withInput();;
+                        return redirect()->back()->withErrors(['creditCard' => $error['description']])->withInput();
+                        ;
                     }
                 }
                 return redirect()->back()->withErrors(['api_error' => $json['message'] ?? 'Erro na API'])->withInput();
@@ -122,13 +123,15 @@ class PagamentoController extends Controller
     public function redirecionaPagamento(string $forma, string $pagamentoId, float $somaValores)
     {
         if ($pagamentoId == "") {
-            return redirect()->back()->withErrors(['Erro ao processar pagamento.'])->withInput();;
+            return redirect()->back()->withErrors(['Erro ao processar pagamento.'])->withInput();
+            ;
         }
         $response = $this->processarPagamento("https://api-sandbox.asaas.com/v3/payments/{$pagamentoId}/billingInfo");
         $json = $response->json();
         $status = $response->status();
         if ($status !== 200) {
-            return redirect()->back()->withErrors(['Erro ao obter QR Code Pix.'])->withInput();;
+            return redirect()->back()->withErrors(['Erro ao obter QR Code Pix.'])->withInput();
+            ;
         }
         $pix = $json['pix'];
         $creditCard = $json['creditCard'];
@@ -143,7 +146,7 @@ class PagamentoController extends Controller
                 ]);
             case 'CREDIT_CARD':
                 return view('pagamento.cartao', [
-                    'creditCardNumber' =>$creditCard["creditCardNumber"],
+                    'creditCardNumber' => $creditCard["creditCardNumber"],
                     'creditCardBrand' => $creditCard['creditCardBrand'],
                     'creditCardToken' => $creditCard['creditCardToken'],
                     'valor' => $somaValores
@@ -194,30 +197,38 @@ class PagamentoController extends Controller
 
     public function testePagamentoBoleto()
     {
-        $response = Http::withOptions(
-            [
-                'verify' => false, // Disable SSL verification for testing
-            ]
-        )->withHeaders([
-                    'accept' => 'application/json',
-                    'access_token' => env('API_TOKEN'),
-                    'User-Agent' => 'Teste PP',
-                ])->throw()->post('https://api-sandbox.asaas.com/v3/payments', [
-                    'customer' => 'cus_000006866639',
-                    'billingType' => 'BOLETO',
-                    'value' => 100.00,
-                    'dueDate' => '2025-08-01'
-                ]);
-        //dd($response->status(), $response->body());
-        $status = $response->status();
-        $body = $response->body(); // Texto bruto da resposta
-        //$json = json_decode($body, true); // Tenta forçar o decode
+        try {
+            $clienteId = Customers::getFirstCustomerKey();
+            if(empty($clienteId)) {
+                dd(['Nenhum cliente encontrado. Por favor, crie um cliente de teste primeiro.']);
+            }
+            $response = Http::withOptions(
+                [
+                    'verify' => false, // Disable SSL verification for testing
+                ]
+            )->withHeaders([
+                        'accept' => 'application/json',
+                        'access_token' => env('API_TOKEN'),
+                        'User-Agent' => 'Teste PP',
+                    ])->throw()->post('https://api-sandbox.asaas.com/v3/payments', [
+                        'customer' => "$clienteId",
+                        'billingType' => 'BOLETO',
+                        'value' => 100.00,
+                        'dueDate' => '2025-08-01'
+                    ]);
+            //dd($response->status(), $response->body());
+            $status = $response->status();
+            $body = $response->body(); // Texto bruto da resposta
+            //$json = json_decode($body, true); // Tenta forçar o decode
 
-        //logger("STATUS: $status");
-        //logger("BODY: $body");
+            //logger("STATUS: $status");
+            //logger("BODY: $body");
 
-        $json = $response->json();
-        //dd($json);
-        return view('pagamento.retornoTeste', ['response' => $json]);
+            $json = $response->json();
+            dd($json);
+            return view('pagamento.retornoTeste', ['response' => $json]);
+        } catch (RequestException $e) {
+            dd($e->getMessage());
+        }
     }
 }
