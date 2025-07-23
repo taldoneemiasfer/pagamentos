@@ -20,6 +20,10 @@ class Pagamentos extends Model
     protected $primaryKey = 'id';
     protected $keyType = 'string';
 
+    public static function criarPagamento($pagamento){
+        Pagamentos::create($pagamento);
+        return Pagamentos::where('pagamento_id', $pagamento['pagamento_id'])->first();
+    }
     public static function getPagamentoPendente($clienteId, $forma, $valor)
     {
         return self::where('customer', $clienteId)

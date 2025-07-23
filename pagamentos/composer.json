@@ -30,6 +30,9 @@
         }
     },
     "autoload-dev": {
+        "files": [
+            "app/Helpers/boletoHelper.php"
+        ],
         "psr-4": {
             "Tests\\": "tests/"
         }

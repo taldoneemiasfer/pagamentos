@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\PagamentoRequest;
 use App\Models\Produtos;
+use App\Models\Pagamentos;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -12,8 +13,6 @@ use Illuminate\Http\Client\RequestException;
 use App\Services\PagamentoService;
 use Carbon\Carbon;
 
-
-use App\Models\Pagamentos;
 use App\Models\Customers;
 use Redirect;
 
@@ -102,7 +101,7 @@ class PagamentoController extends Controller
             ]);
 
             /** criacao do registro no banco de dados local */
-            $pagamentoExists = Pagamentos::create($conteudo);
+            $pagamentoExists = Pagamentos::criarPagamento($conteudo);
 
             //redireciona para a view de pagamento
             return $this->redirecionaPagamento($forma, $pagamentoId, $somaValores);
