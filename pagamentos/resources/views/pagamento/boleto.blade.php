@@ -8,8 +8,8 @@
         <p>Use o link abaixo para acessar seu boleto bancário ou copie o código gerado.</p>
 
         <div class="my-4">
-            <p class="lead">{{ $identificationField }}</p>
-            <a href="{{ $urlBoleto }}" target="_blank" class="btn btn-primary">
+            <p class="lead">{{ formatarBoleto($identificationField) }}</p>
+            <a href="{{ $bankSlipUrl }}" target="_blank" class="btn btn-primary">
                 Visualizar Boleto
             </a>
         </div>

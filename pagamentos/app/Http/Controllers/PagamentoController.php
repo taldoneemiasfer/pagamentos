@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\View;
 use Illuminate\Http\Client\RequestException;
+use App\Services\PagamentoService;
+use Carbon\Carbon;
 
 
 use App\Models\Pagamentos;
@@ -17,6 +19,12 @@ use Redirect;
 
 class PagamentoController extends Controller
 {
+    protected $pagamentoService;
+
+    public function __construct(PagamentoService $pagamentoService)
+    {
+        $this->pagamentoService = $pagamentoService;
+    }
 
     public function index()
     {
@@ -80,15 +88,9 @@ class PagamentoController extends Controller
 
         try {
             /** envia um post para o asaas */
+            $resposta = $this->pagamentoService->enviarPagamentoSandBox($conteudo);
 
-            /** envia um post para o asaas */
-            $response = Http::withOptions(['verify' => false])->withHeaders([
-                'accept' => 'application/json',
-                'access_token' => env('API_TOKEN'),
-                'User-Agent' => 'Teste PP',
-            ])->throw()->post('https://api-sandbox.asaas.com/v3/payments', $conteudo);
-
-            $json = $response->json();
+            $json = $resposta->json();
 
             $pagamentoId = $json['id'];
             $status = $json['status'];
@@ -122,84 +124,59 @@ class PagamentoController extends Controller
 
     public function redirecionaPagamento(string $forma, string $pagamentoId, float $somaValores)
     {
-        if ($pagamentoId == "") {
-            return redirect()->back()->withErrors(['Erro ao processar pagamento.'])->withInput();
-            ;
+        try {
+            if ($pagamentoId == "") {
+                return redirect()->back()->withErrors(['Erro ao processar pagamento.'])->withInput();
+            }
+            $response = $this->pagamentoService->getBillingInfo($pagamentoId);
+            $json = $response->json();
+
+            /** pega os dados de para cada tipo*/
+            $pix = $json['pix'];
+            $creditCard = $json['creditCard'];
+            $boleto = $json['bankSlip'];
+
+            switch ($forma) {
+                case 'PIX':
+                    return view('pagamento.pix', array_merge(
+                        $pix,
+                        [
+                            'valor' => $somaValores,
+                            'vencimento' => Carbon::parse($pix['expirationDate'])->format('d/m/Y'),
+                        ]
+                    ));
+                case 'CREDIT_CARD':
+                    return view('pagamento.cartao', array_merge(
+                        $creditCard,
+                        [
+                            'valor' => $somaValores
+                        ]
+                    ));
+                case 'BOLETO':
+                    
+                    return view('pagamento.boleto', array_merge(
+                        $boleto,
+                        [
+                            'valor' => $somaValores,
+                            'encodedImage' => $pix['encodedImage'],
+                            'payload' => $pix['payload'],
+                            'vencimento' => $pix['expirationDate']
+                        ]
+                    ));
+            }
+        } catch (\Exception $e) {
+            return redirect()->back()->withErrors(['Erro ao processar pagamento: ' . $e->getMessage()])->withInput();
         }
-        $response = $this->processarPagamento("https://api-sandbox.asaas.com/v3/payments/{$pagamentoId}/billingInfo");
-        $json = $response->json();
-        $status = $response->status();
-        if ($status !== 200) {
-            return redirect()->back()->withErrors(['Erro ao obter QR Code Pix.'])->withInput();
-            ;
-        }
-        $pix = $json['pix'];
-        $creditCard = $json['creditCard'];
-        $boleto = $json['bankSlip'];
-        switch ($forma) {
-            case 'PIX':
-                return view('pagamento.pix', [
-                    'encodedImage' => $pix['encodedImage'],
-                    'payload' => $pix['payload'],
-                    'valor' => $somaValores,
-                    'vencimento' => $pix['expirationDate'],
-                ]);
-            case 'CREDIT_CARD':
-                return view('pagamento.cartao', [
-                    'creditCardNumber' => $creditCard["creditCardNumber"],
-                    'creditCardBrand' => $creditCard['creditCardBrand'],
-                    'creditCardToken' => $creditCard['creditCardToken'],
-                    'valor' => $somaValores
-                ]);
-            case 'BOLETO':
-                return view('pagamento.boleto', [
-                    'identificationField' => $boleto['identificationField'],
-                    'urlBoleto' => $boleto['bankSlipUrl'],
-                    'nossoNumero' => $boleto['nossoNumero'],
-                    'barCode' => $boleto['barCode'],
-                    'valor' => $somaValores,
-                    'encodedImage' => $pix['encodedImage'],
-                    'payload' => $pix['payload'],
-                    'vencimento' => $pix['expirationDate'],
-                ]);
-        }
+        return redirect()->back()->withErrors(['Erro ao processar pagamento.'])->withInput();
     }
 
-    public function processarPagamento(string $url): Response
-    {
-        $response = Http::withOptions(
-            [
-                'verify' => false, // Disable SSL verification for testing
-            ]
-        )->withHeaders([
-                    'accept' => 'application/json',
-                    'access_token' => env('API_TOKEN'),
-                    'User-Agent' => 'Teste PP',
-                ])->throw()->get("$url");
-        return $response;
-    }
-
-    public function formatarBoleto(string $codigoBarras): string
-    {
-        // Formata o código de barras do boleto
-        $codigoBarras = preg_replace('/\D/', '', $codigoBarras); // Remove caracteres não numéricos
-
-        $codigoFormatado = substr($codigoBarras, 0, 5) . '.' .
-            substr($codigoBarras, 5, 5) . ' ' .
-            substr($codigoBarras, 10, 5) . '.' .
-            substr($codigoBarras, 15, 6) . ' ' .
-            substr($codigoBarras, 21, 5) . '.' .
-            substr($codigoBarras, 26, 6) . ' ' .
-            substr($codigoBarras, 32, 1) . ' ' .
-            substr($codigoBarras, 33);
-        return $codigoFormatado;
-    }
+    
 
     public function testePagamentoBoleto()
     {
         try {
             $clienteId = Customers::getFirstCustomerKey();
-            if(empty($clienteId)) {
+            if (empty($clienteId)) {
                 dd(['Nenhum cliente encontrado. Por favor, crie um cliente de teste primeiro.']);
             }
             $response = Http::withOptions(
